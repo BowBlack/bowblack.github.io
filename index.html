@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>BowBlack — Early Access Waitlist</title>
+  <meta name="description" content="Join the BowBlack early access waitlist and be first to try our smarter market-moves app." />
+  <style>
+    :root { --bg:#0b0b0c; --panel:#141416; --border:#26272b; --text:#e6e6e6; --muted:#9aa0a6; --brand:#4f46e5; --ok:#7ee787; --err:#ef4444; }
+    *{box-sizing:border-box}
+    body{margin:0; font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; background:var(--bg); color:var(--text); display:grid; min-height:100svh; place-items:center; padding:24px}
+    .card{background:var(--panel); border:1px solid var(--border); width:min(92vw, 520px); padding:28px; border-radius:16px; box-shadow:0 10px 30px rgba(0,0,0,.25)}
+    h1{margin:0 0 8px; font-size:28px}
+    p{margin:0; color:var(--muted)}
+    form{display:flex; gap:8px; margin-top:16px}
+    input[type=email]{flex:1; padding:12px 14px; border-radius:10px; border:1px solid var(--border); background:#0e0f11; color:var(--text); outline:none}
+    input[type=email]::placeholder{color:#6b7280}
+    button{padding:12px 16px; border-radius:10px; border:0; background:var(--brand); color:white; font-weight:600; cursor:pointer}
+    button:disabled{opacity:.65; cursor:not-allowed}
+    .msg{margin-top:12px; font-size:14px}
+    .ok{color:var(--ok)} .err{color:var(--err)}
+    .fineprint{margin-top:10px; font-size:12px; color:#6b7280}
+    .hp{position:absolute; left:-99999px; width:1px; height:1px; overflow:hidden} /* honeypot */
+  </style>
+</head>
+<body>
+  <div class="card" role="region" aria-label="Join the BowBlack waitlist">
+    <h1>Get Early Access to BowBlack</h1>
+    <p>Join the waitlist and be first to try our smarter market-moves app.</p>
+
+    <form id="waitlistForm" novalidate>
+      <input id="email" type="email" name="email" placeholder="you@example.com" autocomplete="email" required />
+      <button id="btn" type="submit" aria-label="Join waitlist">Join</button>
+      <!-- Honeypot (blocks basic bots) -->
+      <input class="hp" type="text" id="website" name="website" tabindex="-1" autocomplete="off" />
+    </form>
+
+    <div class="msg" id="msg" role="status" aria-live="polite"></div>
+    <div class="fineprint">We’ll only use your email for launch updates.</div>
+  </div>
+
+  <script>
+    const FORM = document.getElementById('waitlistForm');
+    const MSG  = document.getElementById('msg');
+    const BTN  = document.getElementById('btn');
+
+    // Deployed Google Apps Script Web App (exec) URL:
+    const ENDPOINT = 'https://script.google.com/macros/s/AKfycbwXzsBU6nJefNHQHERVHBHYbdGtktfhGIVPPs0w-ARmhqHa0lf5Eg6semmipk7qk-2B/exec';
+
+    function validEmail(v){ return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v); }
+
+    FORM.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const email = document.getElementById('email').value.trim().toLowerCase();
+      const trap  = document.getElementById('website').value; // honeypot
+
+      if (trap) return; // bots only
+      if (!validEmail(email)) {
+        MSG.textContent = 'Please enter a valid email.';
+        MSG.className = 'msg err';
+        return;
+      }
+
+      BTN.disabled = true;
+      MSG.textContent = 'Adding you to the list...';
+      MSG.className = 'msg';
+
+      try {
+        // Use form-urlencoded to avoid CORS preflight issues with Apps Script
+        const params = new URLSearchParams();
+        params.append('email', email);
+        params.append('source', 'waitlist_site');
+
+        const res = await fetch(ENDPOINT, { method: 'POST', body: params });
+        const text = await res.text();      // Apps Script returns JSON text
+        let data = {};
+        try { data = JSON.parse(text); } catch { data = { ok:false, error:'Bad response' }; }
+
+        if (data.ok) {
+          MSG.textContent = 'You’re in! Check your email for confirmation 🎉';
+          MSG.className = 'msg ok';
+          FORM.reset();
+        } else {
+          throw new Error(data.error || 'Something went wrong');
+        }
+      } catch (err) {
+        MSG.textContent = 'Sorry, there was an error. Please try again in a moment.';
+        MSG.className = 'msg err';
+      } finally {
+        BTN.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>
