@@ -43,69 +43,160 @@
   </div>
 
   <script>
-    const FORM = document.getElementById('waitlistForm');
-    const MSG  = document.getElementById('msg');
-    const BTN  = document.getElementById('btn');
+  <script>
+  const FORM = document.getElementById('waitlistForm');
+  const MSG  = document.getElementById('msg');
+  const BTN  = document.getElementById('btn');
+  const EMAIL = document.getElementById('email');
+  const EMAIL_ERR = document.getElementById('emailError');
 
-    // Deployed Google Apps Script Web App (exec) URL:
-    const ENDPOINT = 'https://script.google.com/macros/s/AKfycbxZzzSVsJ7ZUXdO_41Ta7n0iwffutAD_jaN9HIDMDP94kH-aWY8IGshkd3SUEB4Ei3Kiw/exec';
+  // Your deployed Google Apps Script Web App (exec) URL:
+  const ENDPOINT = 'https://script.google.com/macros/s/AKfycbxZzzSVsJ7ZUXdO_41Ta7n0iwffutAD_jaN9HIDMDP94kH-aWY8IGshkd3SUEB4Ei3Kiw/exec';
 
-   function validEmail(v) {
-  const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i;
-  const emailError = document.getElementById("emailError");
+  // --- Email validation helpers ---
+  const COMMON_DOMAIN_FIXES = {
+    'gamil.com':'gmail.com','gmial.com':'gmail.com','gnail.com':'gmail.com','gmaill.com':'gmail.com','gmai.com':'gmail.com',
+    'hotnail.com':'hotmail.com','hotmai.com':'hotmail.com','homtail.com':'hotmail.com',
+    'yahho.com':'yahoo.com','yhoo.com':'yahoo.com','yahoo.co':'yahoo.com',
+    'outlok.com':'outlook.com','outllok.com':'outlook.com',
+    'icloud.co':'icloud.com','protonmaill.com':'proton.me','protonmail.co':'proton.me'
+  };
 
-  if (!v || !emailPattern.test(v)) {
-    emailError.textContent = "Please enter a valid email address.";
-    return false;
+  function showEmailError(msg) { EMAIL_ERR.textContent = msg || ''; }
+  function clearEmailError() { showEmailError(''); }
+
+  // Basic Levenshtein (small, just for short domain strings)
+  function distance(a,b){
+    a=a.toLowerCase(); b=b.toLowerCase();
+    const dp=Array(b.length+1).fill(0).map((_,i)=>[i]);
+    for(let j=0;j<=a.length;j++) dp[0][j]=j;
+    for(let i=1;i<=b.length;i++){
+      for(let j=1;j<=a.length;j++){
+        dp[i][j]=Math.min(
+          dp[i-1][j]+1, dp[i][j-1]+1, dp[i-1][j-1]+(a[j-1]===b[i-1]?0:1)
+        );
+      }
+    }
+    return dp[b.length][a.length];
   }
 
-  emailError.textContent = "";
-  return true;
-}
+  const POPULAR = ['gmail.com','hotmail.com','outlook.com','yahoo.com','icloud.com','live.com','proton.me'];
 
+  function suggestDomain(domain){
+    if (COMMON_DOMAIN_FIXES[domain]) return COMMON_DOMAIN_FIXES[domain];
+    let best = null, bestD = 3; // max 2 edits away
+    for (const good of POPULAR){
+      const d = distance(domain, good);
+      if (d < bestD){ bestD = d; best = good; }
+    }
+    return best;
+  }
 
-    FORM.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const email = document.getElementById('email').value.trim().toLowerCase();
-      const trap  = document.getElementById('website').value; // honeypot
+  function validEmailFormat(v){
+    // overall length
+    if (!v || v.length > 254) return { ok:false, msg:'Please enter a valid email address.' };
 
-     if (!validEmail(email)) {
-  document.getElementById("emailError").textContent = "Please enter a valid email.";
-  return;
-} else {
-  document.getElementById("emailError").textContent = "";
-}
+    // must be exactly one "@"
+    const parts = v.split('@');
+    if (parts.length !== 2) return { ok:false, msg:'Email must contain a single @ symbol.' };
 
+    const [local, domainRaw] = parts;
+    const domain = domainRaw.toLowerCase();
 
-      BTN.disabled = true;
-      MSG.textContent = 'Adding you to the list...';
-      MSG.className = 'msg';
+    // local part
+    if (!local || local.length > 64) return { ok:false, msg:'Local part is too long.' };
+    if (local.startsWith('.') || local.endsWith('.')) return { ok:false, msg:'Local part cannot start/end with a dot.' };
+    if (/\.\./.test(local)) return { ok:false, msg:'Local part cannot contain consecutive dots.' };
+    // allow common ASCII email characters
+    if (!/^[A-Za-z0-9!#$%&'*+/=?^_`{|}~.-]+$/.test(local)) {
+      return { ok:false, msg:'Local part contains invalid characters.' };
+    }
 
-      try {
-        // Use form-urlencoded to avoid CORS preflight issues with Apps Script
-        const params = new URLSearchParams();
-        params.append('email', email);
-        params.append('source', 'waitlist_site');
+    // domain part
+    if (!domain || domain.length < 3) return { ok:false, msg:'Domain is too short.' };
+    if (domain.startsWith('-') || domain.endsWith('-')) return { ok:false, msg:'Domain cannot start/end with a hyphen.' };
+    if (/\.\./.test(domain)) return { ok:false, msg:'Domain cannot contain consecutive dots.' };
+    if (!domain.includes('.')) return { ok:false, msg:'Domain must include a dot (e.g., gmail.com).' };
 
-        const res = await fetch(ENDPOINT, { method: 'POST', body: params });
-        const text = await res.text();      // Apps Script returns JSON text
-        let data = {};
-        try { data = JSON.parse(text); } catch { data = { ok:false, error:'Bad response' }; }
+    // each label rules
+    const labels = domain.split('.');
+    for (const lbl of labels){
+      if (!lbl.length) return { ok:false, msg:'Domain has empty label.' };
+      if (!/^[A-Za-z0-9-]+$/.test(lbl)) return { ok:false, msg:'Domain contains invalid characters.' };
+      if (lbl.startsWith('-') || lbl.endsWith('-')) return { ok:false, msg:'Domain labels cannot start/end with a hyphen.' };
+    }
 
-        if (data.ok) {
-          MSG.textContent = 'You’re in! Check your email for confirmation 🎉';
-          MSG.className = 'msg ok';
-          FORM.reset();
-        } else {
-          throw new Error(data.error || 'Something went wrong');
-        }
-      } catch (err) {
-        MSG.textContent = 'Sorry, there was an error. Please try again in a moment.';
-        MSG.className = 'msg err';
-      } finally {
-        BTN.disabled = false;
+    // TLD length (2–63) and letters/digits allowed (keep simple)
+    const tld = labels[labels.length-1];
+    if (tld.length < 2 || tld.length > 63) return { ok:false, msg:'Top-level domain length is invalid.' };
+
+    // If we got here, format looks good
+    const suggestion = suggestDomain(domain);
+    return { ok:true, suggestion };
+  }
+
+  // Live validation feedback
+  EMAIL.addEventListener('input', () => {
+    const v = EMAIL.value.trim();
+    if (!v){ clearEmailError(); return; }
+    const { ok, msg, suggestion } = validEmailFormat(v);
+    if (!ok){ showEmailError(msg); return; }
+    // show suggestion if domain looks mistyped
+    const dom = v.split('@')[1]?.toLowerCase();
+    if (suggestion && dom && suggestion !== dom){
+      showEmailError(`Did you mean ${v.split('@')[0]}@${suggestion}? (Submit will still work)`);
+    } else {
+      clearEmailError();
+    }
+  });
+
+  FORM.addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    const email = EMAIL.value.trim().toLowerCase();
+    const trap  = document.getElementById('website').value; // honeypot
+
+    if (trap) return; // bots only
+
+    const { ok, msg } = validEmailFormat(email);
+    if (!ok){
+      showEmailError(msg || 'Please enter a valid email address.');
+      return;
+    }
+    clearEmailError();
+
+    BTN.disabled = true;
+    MSG.textContent = 'Adding you to the list...';
+    MSG.className = 'msg';
+
+    try {
+      // Submit as x-www-form-urlencoded to Apps Script
+      const params = new URLSearchParams();
+      params.append('email', email);
+      params.append('source', 'waitlist_site');
+
+      const res = await fetch(ENDPOINT, { method: 'POST', body: params });
+      const text = await res.text();
+      let data = {};
+      try { data = JSON.parse(text); } catch { data = { ok:false, error:'Bad response' }; }
+
+      if (data.ok) {
+        MSG.textContent = 'You’re in! Check your email for confirmation 🎉';
+        MSG.className = 'msg ok';
+        FORM.reset();
+        clearEmailError();
+      } else {
+        throw new Error(data.error || 'Something went wrong');
       }
-    });
+    } catch (err) {
+      MSG.textContent = 'Sorry, there was an error. Please try again in a moment.';
+      MSG.className = 'msg err';
+    } finally {
+      BTN.disabled = false;
+    }
+  });
+</script>
+
   </script>
 </body>
 </html>
