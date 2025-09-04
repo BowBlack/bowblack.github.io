@@ -43,111 +43,40 @@
   </div>
 
   <script>
-  <script>
   const FORM = document.getElementById('waitlistForm');
   const MSG  = document.getElementById('msg');
   const BTN  = document.getElementById('btn');
   const EMAIL = document.getElementById('email');
   const EMAIL_ERR = document.getElementById('emailError');
 
-  // Your deployed Google Apps Script Web App (exec) URL:
+  // ⛳️ Your deployed Apps Script Web App (EXEC) URL:
   const ENDPOINT = 'https://script.google.com/macros/s/AKfycbxZzzSVsJ7ZUXdO_41Ta7n0iwffutAD_jaN9HIDMDP94kH-aWY8IGshkd3SUEB4Ei3Kiw/exec';
 
-  // --- Email validation helpers ---
-  const COMMON_DOMAIN_FIXES = {
-    'gamil.com':'gmail.com','gmial.com':'gmail.com','gnail.com':'gmail.com','gmaill.com':'gmail.com','gmai.com':'gmail.com',
-    'hotnail.com':'hotmail.com','hotmai.com':'hotmail.com','homtail.com':'hotmail.com',
-    'yahho.com':'yahoo.com','yhoo.com':'yahoo.com','yahoo.co':'yahoo.com',
-    'outlok.com':'outlook.com','outllok.com':'outlook.com',
-    'icloud.co':'icloud.com','protonmaill.com':'proton.me','protonmail.co':'proton.me'
-  };
+  function showEmailError(msg){ EMAIL_ERR.textContent = msg || ''; }
+  function clearEmailError(){ showEmailError(''); }
 
-  function showEmailError(msg) { EMAIL_ERR.textContent = msg || ''; }
-  function clearEmailError() { showEmailError(''); }
-
-  // Basic Levenshtein (small, just for short domain strings)
-  function distance(a,b){
-    a=a.toLowerCase(); b=b.toLowerCase();
-    const dp=Array(b.length+1).fill(0).map((_,i)=>[i]);
-    for(let j=0;j<=a.length;j++) dp[0][j]=j;
-    for(let i=1;i<=b.length;i++){
-      for(let j=1;j<=a.length;j++){
-        dp[i][j]=Math.min(
-          dp[i-1][j]+1, dp[i][j-1]+1, dp[i-1][j-1]+(a[j-1]===b[i-1]?0:1)
-        );
-      }
-    }
-    return dp[b.length][a.length];
-  }
-
-  const POPULAR = ['gmail.com','hotmail.com','outlook.com','yahoo.com','icloud.com','live.com','proton.me'];
-
-  function suggestDomain(domain){
-    if (COMMON_DOMAIN_FIXES[domain]) return COMMON_DOMAIN_FIXES[domain];
-    let best = null, bestD = 3; // max 2 edits away
-    for (const good of POPULAR){
-      const d = distance(domain, good);
-      if (d < bestD){ bestD = d; best = good; }
-    }
-    return best;
-  }
-
+  // Pragmatic email format check
   function validEmailFormat(v){
-    // overall length
-    if (!v || v.length > 254) return { ok:false, msg:'Please enter a valid email address.' };
-
-    // must be exactly one "@"
+    if (!v) return {ok:false, msg:'Please enter a valid email address.'};
+    if (v.length > 254) return {ok:false, msg:'Email is too long.'};
     const parts = v.split('@');
-    if (parts.length !== 2) return { ok:false, msg:'Email must contain a single @ symbol.' };
-
-    const [local, domainRaw] = parts;
-    const domain = domainRaw.toLowerCase();
-
-    // local part
-    if (!local || local.length > 64) return { ok:false, msg:'Local part is too long.' };
-    if (local.startsWith('.') || local.endsWith('.')) return { ok:false, msg:'Local part cannot start/end with a dot.' };
-    if (/\.\./.test(local)) return { ok:false, msg:'Local part cannot contain consecutive dots.' };
-    // allow common ASCII email characters
-    if (!/^[A-Za-z0-9!#$%&'*+/=?^_`{|}~.-]+$/.test(local)) {
-      return { ok:false, msg:'Local part contains invalid characters.' };
-    }
-
-    // domain part
-    if (!domain || domain.length < 3) return { ok:false, msg:'Domain is too short.' };
-    if (domain.startsWith('-') || domain.endsWith('-')) return { ok:false, msg:'Domain cannot start/end with a hyphen.' };
-    if (/\.\./.test(domain)) return { ok:false, msg:'Domain cannot contain consecutive dots.' };
-    if (!domain.includes('.')) return { ok:false, msg:'Domain must include a dot (e.g., gmail.com).' };
-
-    // each label rules
-    const labels = domain.split('.');
-    for (const lbl of labels){
-      if (!lbl.length) return { ok:false, msg:'Domain has empty label.' };
-      if (!/^[A-Za-z0-9-]+$/.test(lbl)) return { ok:false, msg:'Domain contains invalid characters.' };
-      if (lbl.startsWith('-') || lbl.endsWith('-')) return { ok:false, msg:'Domain labels cannot start/end with a hyphen.' };
-    }
-
-    // TLD length (2–63) and letters/digits allowed (keep simple)
-    const tld = labels[labels.length-1];
-    if (tld.length < 2 || tld.length > 63) return { ok:false, msg:'Top-level domain length is invalid.' };
-
-    // If we got here, format looks good
-    const suggestion = suggestDomain(domain);
-    return { ok:true, suggestion };
+    if (parts.length !== 2) return {ok:false, msg:'Email must contain a single @ symbol.'};
+    const [local, domain] = parts;
+    if (!local || !domain) return {ok:false, msg:'Email must have text before and after @.'};
+    if (!domain.includes('.')) return {ok:false, msg:'Domain must include a dot (e.g., gmail.com).'};
+    // reasonable characters
+    if (!/^[A-Za-z0-9!#$%&'*+/=?^_`{|}~.-]+$/.test(local)) return {ok:false, msg:'Local part has invalid characters.'};
+    if (/\.\./.test(local)) return {ok:false, msg:'Local part cannot contain consecutive dots.'};
+    if (!/^[A-Za-z0-9.-]+$/.test(domain)) return {ok:false, msg:'Domain has invalid characters.'};
+    if (/\.\./.test(domain)) return {ok:false, msg:'Domain cannot contain consecutive dots.'};
+    return {ok:true};
   }
 
-  // Live validation feedback
   EMAIL.addEventListener('input', () => {
     const v = EMAIL.value.trim();
-    if (!v){ clearEmailError(); return; }
-    const { ok, msg, suggestion } = validEmailFormat(v);
-    if (!ok){ showEmailError(msg); return; }
-    // show suggestion if domain looks mistyped
-    const dom = v.split('@')[1]?.toLowerCase();
-    if (suggestion && dom && suggestion !== dom){
-      showEmailError(`Did you mean ${v.split('@')[0]}@${suggestion}? (Submit will still work)`);
-    } else {
-      clearEmailError();
-    }
+    if (!v) return clearEmailError();
+    const {ok, msg} = validEmailFormat(v);
+    if (!ok) showEmailError(msg); else clearEmailError();
   });
 
   FORM.addEventListener('submit', async (e) => {
@@ -156,46 +85,54 @@
     const email = EMAIL.value.trim().toLowerCase();
     const trap  = document.getElementById('website').value; // honeypot
 
-    if (trap) return; // bots only
+    // bot trap
+    if (trap) return;
 
-    const { ok, msg } = validEmailFormat(email);
-    if (!ok){
-      showEmailError(msg || 'Please enter a valid email address.');
-      return;
-    }
+    // format check
+    const {ok, msg} = validEmailFormat(email);
+    if (!ok){ showEmailError(msg); return; }
     clearEmailError();
 
+    // UI lock
     BTN.disabled = true;
     MSG.textContent = 'Adding you to the list...';
     MSG.className = 'msg';
 
     try {
-      // Submit as x-www-form-urlencoded to Apps Script
+      // Submit as application/x-www-form-urlencoded (avoids CORS preflight with Apps Script)
       const params = new URLSearchParams();
       params.append('email', email);
       params.append('source', 'waitlist_site');
 
       const res = await fetch(ENDPOINT, { method: 'POST', body: params });
       const text = await res.text();
-      let data = {};
-      try { data = JSON.parse(text); } catch { data = { ok:false, error:'Bad response' }; }
 
-      if (data.ok) {
+      let data;
+      try { data = JSON.parse(text); }
+      catch (e) {
+        console.error('Non-JSON response from Apps Script:', text);
+        throw new Error('Bad response');
+      }
+
+      if (!data.ok) throw new Error(data.error || 'Server error');
+
+      if (data.duplicate) {
+        MSG.textContent = 'Looks like you’re already on the list with that email ✔️';
+        MSG.className = 'msg ok';
+      } else {
         MSG.textContent = 'You’re in! Check your email for confirmation 🎉';
         MSG.className = 'msg ok';
         FORM.reset();
         clearEmailError();
-      } else {
-        throw new Error(data.error || 'Something went wrong');
       }
     } catch (err) {
+      console.error(err);
       MSG.textContent = 'Sorry, there was an error. Please try again in a moment.';
       MSG.className = 'msg err';
     } finally {
       BTN.disabled = false;
     }
   });
-</script>
 
   </script>
 </body>
